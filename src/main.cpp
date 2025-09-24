@@ -126,63 +126,12 @@ void wakeup()
 
 void loop()
 {
-  Serial.println("=== 电机测试开始 ===");
-
-  // 电机A正转测试
-  Serial.println("电机A正转加速");
-  for (int speed = 0; speed <= 255; speed += 10)
+  static bool started = false;
+  if (!started)
   {
-    motorA(speed);
-    Serial.print("电机A速度: ");
-    Serial.println(speed);
-    delay(100);
+    Serial.println("双电机全速前进");
+    motors(-100, 150); // 全速前进
+    started = true;
   }
-  delay(1000);
-
-  // 电机A反转测试
-  Serial.println("电机A反转");
-  for (int speed = 0; speed >= -255; speed -= 10)
-  {
-    motorA(speed);
-    Serial.print("电机A速度: ");
-    Serial.println(speed);
-    delay(100);
-  }
-  delay(1000);
-
-  // 电机B测试
-  Serial.println("电机B正转");
-  for (int speed = 0; speed <= 255; speed += 10)
-  {
-    motorB(speed);
-    Serial.print("电机B速度: ");
-    Serial.println(speed);
-    delay(100);
-  }
-  delay(1000);
-
-  // 双电机协同控制
-  Serial.println("双电机前进");
-  motors(200, 200);
-  delay(2000);
-
-  Serial.println("左转");
-  motors(100, 200);
-  delay(1000);
-
-  Serial.println("右转");
-  motors(200, 100);
-  delay(1000);
-
-  Serial.println("刹车");
-  brakeAll();
-  delay(2000);
-
-  Serial.println("待机模式");
-  standby();
-  delay(2000);
-
-  Serial.println("唤醒");
-  wakeup();
-  delay(1000);
+  // 持续保持全速，无需其它操作
 }
