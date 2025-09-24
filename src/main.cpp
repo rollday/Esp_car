@@ -130,8 +130,7 @@ void loop()
   if (!started)
   {
     Serial.println("双电机全速前进");
-    motors(-100, 150); // 全速前进
+    motors(-100, 150);
     started = true;
   }
-  // 持续保持全速，无需其它操作
 }
