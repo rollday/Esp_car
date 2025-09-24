@@ -1,0 +1,46 @@
+# Arduino build output
+*.elf
+*.bin
+*.hex
+*.map
+*.eep
+*.dmp
+
+# Arduino IDE files
+*.ino.cpp
+*.sdf
+*.suo
+*.user
+*.opensdf
+*.ipch
+
+# ESP32 build output
+/build/
+*.log
+
+# VSCode settings
+.vscode/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piodeps/
+platformio.ini
+
+# Python virtual environments
+venv/
+.env/
+
+# Misc
+*.pyc
+__pycache__/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Node dependencies (if any web UI)
+node_modules/
+
+# Ignore .DS_Store on macOS
+.DS_Store
