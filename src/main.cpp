@@ -1,17 +1,17 @@
 #include <Arduino.h>
 // TB6612FNG 电机控制引脚定义
 // 电机A
-const int AIN1 = 9;  // 方向引脚1
-const int AIN2 = 10; // 方向引脚2
-const int PWMA = 8;  // PWM速度控制
+const int AIN1 = 10;  // 方向引脚1
+const int AIN2 = 9; // 方向引脚2
+const int PWMA = 46;  // PWM速度控制
 
 // 电机B
 const int BIN1 = 12; // 方向引脚1
 const int BIN2 = 13; // 方向引脚2
-const int PWMB = 11; // PWM速度控制
+const int PWMB = 14; // PWM速度控制
 
 // 公共引脚
-const int STBY = 14; // 待机控制
+const int STBY = 11; // 待机控制
 
 // PWM参数
 const int pwmChannelA = 0; // 电机A的PWM通道
