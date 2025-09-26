@@ -129,8 +129,7 @@ void loop()
   static bool started = false;
   if (!started)
   {
-    Serial.println("双电机全速前进");
-    motors(-100, 150);
+    motors(255, 255);
     started = true;
   }
 }
