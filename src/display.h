@@ -5,3 +5,6 @@ bool initDisplay();
 
 // 根据当前电机速度刷新显示
 void updateDisplay(int currentSpeedA, int currentSpeedB);
+
+// 清屏函数声明
+void clearDisplay();

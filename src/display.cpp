@@ -29,7 +29,6 @@ bool initDisplay()
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 0);
-    display.println("OLED Ready");
     display.display();
     return true;
 }
@@ -51,4 +50,11 @@ void updateDisplay(int currentSpeedA, int currentSpeedB)
     display.setCursor(0, 32);
     display.printf("B:%s %3d", dirB, valB);
     display.display();
+}
+
+// 清屏函数实现
+void clearDisplay()
+{
+    display.clearDisplay(); // 清除显示内容
+    display.display();      // 刷新屏幕，确保黑屏
 }
