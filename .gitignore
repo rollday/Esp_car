@@ -25,7 +25,6 @@
 .pio/
 .pioenvs/
 .piodeps/
-platformio.ini
 
 # Python virtual environments
 venv/
