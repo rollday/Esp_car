@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include "motors.h"
 #include "display.h"
-#include "buttons.h" // 新增：按键模块头文件
+#include "buttons.h"    // 新增：按键模块头文件
+#include "ultrasonic.h" // 新增：超声波模块
 
 // Function prototype for clearDisplay
 void clearDisplay();
@@ -84,6 +85,9 @@ void setup()
 
   Serial.println("TB6612FNG 电机驱动初始化完成");
 
+  // 新增：初始化超声波
+  initUltrasonic();
+
   // 初始化按键（模块化）
   buttonsInit();
   buttonsSetShortPressHandler(onShortPress);
@@ -105,7 +109,20 @@ void loop()
   static uint32_t lastUpdate = 0;
   if (displayEnabled && millis() - lastUpdate >= 200)
   {
-    updateDisplay(getSpeedA(), getSpeedB());
+    // 新增：读取超声波距离，并同时显示距离+两路速度
+    float cm = ultrasonicReadCm();
+    if (cm < 8.0f)
+    {
+      motors(0, 0); // 距离过近，紧急停止
+      motorEnabled = false;
+      Serial.println("距离过近，电机停止");
+    }
+    else
+    {
+      motorEnabled = true; // 恢复电机状态
+      applyMotorState();
+    }
+    updateDisplay(cm, getSpeedA(), getSpeedB());
     lastUpdate = millis();
   }
 

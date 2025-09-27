@@ -15,6 +15,8 @@ static const int SCL_PIN = 4;
 
 static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+static bool isDisplayInitialized = false; // 添加一个标志位
+
 bool initDisplay()
 {
     Wire.begin(SDA_PIN, SCL_PIN);
@@ -25,6 +27,7 @@ bool initDisplay()
         return false;
     }
 
+    isDisplayInitialized = true; // 初始化成功后设置标志位
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
@@ -35,6 +38,11 @@ bool initDisplay()
 
 void updateDisplay(int currentSpeedA, int currentSpeedB)
 {
+    if (!isDisplayInitialized) // 检查是否已初始化
+    {
+        return;
+    }
+
     const char *dirA = (currentSpeedA > 0) ? "FWD" : (currentSpeedA < 0) ? "REV"
                                                                          : "STOP";
     const char *dirB = (currentSpeedB > 0) ? "FWD" : (currentSpeedB < 0) ? "REV"
@@ -52,9 +60,53 @@ void updateDisplay(int currentSpeedA, int currentSpeedB)
     display.display();
 }
 
+void updateDisplay(float distance)
+{
+    if (!isDisplayInitialized) // 检查是否已初始化
+    {
+        return;
+    }
+
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+
+    // 显示距离
+    display.setCursor(0, 0);
+    display.printf("%.1fcm", distance);
+
+    display.display();
+}
+
+void updateDisplay(float distance, int currentSpeedA, int currentSpeedB)
+{
+    if (!isDisplayInitialized)
+        return;
+
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+
+    // 第一行：距离
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.printf("D:%.1fcm", distance);
+
+    // 第二行：两路速度，一行展示
+    display.setTextSize(1);
+    display.setCursor(0, 40);
+    display.printf("V: %4d %4d", currentSpeedA, currentSpeedB);
+
+    display.display();
+}
+
 // 清屏函数实现
 void clearDisplay()
 {
+    if (!isDisplayInitialized) // 检查是否已初始化
+    {
+        return;
+    }
+
     display.clearDisplay(); // 清除显示内容
     display.display();      // 刷新屏幕，确保黑屏
 }
