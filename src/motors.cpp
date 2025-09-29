@@ -2,17 +2,17 @@
 
 // TB6612FNG 电机控制引脚定义
 // 电机A
-static const int AIN1 = 10; // 方向引脚1
-static const int AIN2 = 9;  // 方向引脚2
-static const int PWMA = 46; // PWM速度控制
+static const int AIN1 = 40; // 方向引脚1
+static const int AIN2 = 41;  // 方向引脚2
+static const int PWMA = 42; // PWM速度控制
 
 // 电机B
-static const int BIN1 = 12; // 方向引脚1
-static const int BIN2 = 13; // 方向引脚2
-static const int PWMB = 14; // PWM速度控制
+static const int BIN1 = 38; // 方向引脚1
+static const int BIN2 = 37; // 方向引脚2
+static const int PWMB = 36; // PWM速度控制
 
 // 公共引脚
-static const int STBY = 11; // 待机控制
+static const int STBY = 39; // 待机控制
 
 // PWM参数
 static const int pwmChannelA = 0; // 电机A的PWM通道
