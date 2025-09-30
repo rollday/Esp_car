@@ -13,6 +13,9 @@ static bool motorForward = true;
 static bool displayEnabled = false;
 static const int BASE_SPEED = 200; // 可根据需要调整
 
+// 新增：障碍物检测标志
+static bool obstacleDetected = false;
+
 // 应用电机状态
 static void applyMotorState()
 {
@@ -109,18 +112,27 @@ void loop()
   static uint32_t lastUpdate = 0;
   if (displayEnabled && millis() - lastUpdate >= 200)
   {
-    // 新增：读取超声波距离，并同时显示距离+两路速度
     float cm = ultrasonicReadCm();
     if (cm < 8.0f)
     {
-      motors(0, 0); // 距离过近，紧急停止
-      motorEnabled = false;
-      Serial.println("距离过近，电机停止");
+      if (!obstacleDetected) // 避免重复打印
+      {
+        motors(0, 0); // 距离过近，紧急停止
+        obstacleDetected = true;
+        Serial.println("距离过近，电机停止");
+      }
     }
     else
     {
-      motorEnabled = true; // 恢复电机状态
-      applyMotorState();
+      if (obstacleDetected) // 障碍物消失时恢复状态
+      {
+        obstacleDetected = false;
+        Serial.println("障碍物清除");
+      }
+      if (motorEnabled) // 仅在电机启用时应用状态
+      {
+        applyMotorState();
+      }
     }
     updateDisplay(cm, getSpeedA(), getSpeedB());
     lastUpdate = millis();
