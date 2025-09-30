@@ -1,19 +1,13 @@
 #pragma once
 
-// 返回 true 表示初始化成功
+// 初始化OLED显示屏
 bool initDisplay();
 
-// 根据当前电机速度刷新显示
-void updateDisplay(int currentSpeedA, int currentSpeedB);
-
-// 根据当前距离刷新显示
-void updateDisplay(float distance);
-
-// 新增：同时显示距离与两路速度（V: ...... ......）
-void updateDisplay(float distance, int currentSpeedA, int currentSpeedB);
-
-// 新增姿态显示
-void updateAttitudeDisplay(float roll, float pitch, float yaw, float velocityX, float velocityY);
-
-// 清屏函数声明
+// 清除显示
 void clearDisplay();
+
+// 更新显示 - 显示距离和两个电机速度
+void updateDisplay(float distance, bool motorEnabled, bool motorForward, float planarVelocity);
+
+// 如果需要保留姿态显示的功能，可以添加这个函数
+void updateAttitudeDisplay(float roll, float pitch, float yaw, float velX, float velY);

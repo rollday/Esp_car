@@ -10,8 +10,8 @@
 #define I2C_ADDRESS 0x3C
 
 // 根据原代码的 I2C 引脚
-static const int SDA_PIN = 5;
-static const int SCL_PIN = 4;
+static const int SDA_PIN = 47;
+static const int SCL_PIN = 48;
 
 static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
@@ -117,6 +117,31 @@ void updateAttitudeDisplay(float roll, float pitch, float yaw, float velocityX, 
     display.printf("VX:%5.2f", velocityX);
     display.setCursor(0, 48);
     display.printf("VY:%5.2f", velocityY);
+    display.display();
+}
+
+void updateDisplay(float distance, bool motorEnabled, bool motorForward, float planarVelocity)
+{
+    if (!isDisplayInitialized)
+    {
+        return;
+    }
+
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.printf("D:%4.1fcm", distance);
+
+    display.setTextSize(1);
+    display.setCursor(0, 32);
+    display.printf("Vt:%5.2f", planarVelocity);
+    display.setCursor(0, 44);
+    display.printf("Motor:%s", motorEnabled ? "ON" : "OFF");
+    display.setCursor(0, 56);
+    display.printf("Dir:%s", motorForward ? "FWD" : "REV");
+
     display.display();
 }
 
