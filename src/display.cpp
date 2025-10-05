@@ -99,6 +99,27 @@ void updateDisplay(float distance, int currentSpeedA, int currentSpeedB)
     display.display();
 }
 
+void updateAttitudeDisplay(float roll, float pitch, float yaw, float velocityX, float velocityY)
+{
+    if (!isDisplayInitialized)
+    {
+        return;
+    }
+
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.printf("R:%5.1f P:%5.1f", roll, pitch);
+    display.setCursor(0, 16);
+    display.printf("Y:%5.1f", yaw);
+    display.setCursor(0, 32);
+    display.printf("VX:%5.2f", velocityX);
+    display.setCursor(0, 48);
+    display.printf("VY:%5.2f", velocityY);
+    display.display();
+}
+
 // 清屏函数实现
 void clearDisplay()
 {

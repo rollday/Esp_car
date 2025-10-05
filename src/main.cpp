@@ -1,143 +1,229 @@
-#include <Arduino.h>
-#include "motors.h"
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Wire.h>
 #include "display.h"
-#include "buttons.h"    // 新增：按键模块头文件
-#include "ultrasonic.h" // 新增：超声波模块
 
-// Function prototype for clearDisplay
-void clearDisplay();
+Adafruit_MPU6050 mpu;
 
-// 业务状态：默认电机关闭、OLED关闭、方向前进
-static bool motorEnabled = false;
-static bool motorForward = true;
-static bool displayEnabled = false;
-static const int BASE_SPEED = 200; // 可根据需要调整
+// 传感器数据变量
+float accelX, accelY, accelZ;
+float gyroX, gyroY, gyroZ;
 
-// 新增：障碍物检测标志
-static bool obstacleDetected = false;
+// 姿态变量
+float roll = 0, pitch = 0, yaw = 0;
 
-// 应用电机状态
-static void applyMotorState()
-{
-  if (!motorEnabled)
-  {
-    motors(0, 0);
-    return;
-  }
-  int s = motorForward ? BASE_SPEED : -BASE_SPEED;
-  motors(s, s);
-}
+// 速度变量
+float velocityX = 0, velocityY = 0;
 
-// 新增：按键事件回调（短按）
-static void onShortPress(int buttonIndex)
-{
-  switch (buttonIndex)
-  {
-  case 0: // K1：电机启动/停止
-    motorEnabled = !motorEnabled;
-    applyMotorState();
-    Serial.println(motorEnabled ? "电机：启动" : "电机：停止");
-    break;
-  case 1: // K2：OLED 开/关（仅影响是否刷新显示）
-    displayEnabled = !displayEnabled;
-    if (!displayEnabled)
-    {
-      clearDisplay(); // 清屏并黑屏
-    }
-    Serial.println(displayEnabled ? "OLED：显示开启" : "OLED：显示关闭");
-    break;
-  case 2: // K3：前进/后退
-    motorForward = !motorForward;
-    applyMotorState();
-    Serial.println(motorForward ? "方向：前进" : "方向：后退");
-    break;
-  case 3: // K4：系统重启
-    Serial.println("系统重启中...");
-    delay(100);
-    ESP.restart();
-    break;
-  default:
-    break;
-  }
-}
+// 时间变量
+unsigned long lastTime = 0;
+float deltaTime = 0;
+static constexpr unsigned long DISPLAY_INTERVAL_MS = 200;
+unsigned long lastDisplayUpdateMs = 0;
 
-// 新增：按键事件回调（长按）
-static void onLongPress(int buttonIndex)
-{
-  Serial.print("按键");
-  Serial.print(buttonIndex + 1);
-  Serial.println(" 长按");
-}
+// 校准变量
+float gyroXoffset = 0, gyroYoffset = 0, gyroZoffset = 0;
+float accelXoffset = 0, accelYoffset = 0, accelZoffset = 0;
+const float GRAVITY = 9.80665f;
+bool calibrated = false;
 
+// 定义MPU6050引脚
+#define MPU6050_SDA 5  // 与 OLED 共用 I2C 总线
+#define MPU6050_SCL 4  // 与 OLED 共用 I2C 总线
+
+// 偏航角静止检测阈值
+#define YAW_ZERO_THRESHOLD 0.1 // deg/s
+#define YAW_ZERO_TIME 2000     // ms
+
+// 偏航角静止检测变量
+unsigned long yawZeroStartTime = 0;
+bool yawZeroing = false;
+
+// 函数声明
+void calibrateGyro();
+void calibrateAccelerometer();
+void readMPU6050();
+void updateAttitude();
+void calculateVelocity();
 void setup()
 {
   Serial.begin(115200);
 
-  initMotors();
+  // 设置I2C引脚
+  Wire.begin(MPU6050_SDA, MPU6050_SCL);
 
+  // 初始化MPU6050
+  if (!mpu.begin())
+  {
+    Serial.println("找不到MPU6050芯片！");
+    while (1)
+    {
+      delay(10);
+    }
+  }
+  Serial.println("MPU6050初始化成功！");
+
+  // 配置传感器范围
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+  // 校准陀螺仪
+  calibrateGyro();
+  calibrateAccelerometer();
+
+  // 初始化显示
   if (!initDisplay())
   {
-    Serial.println(F("SSD1306初始化失败"));
-    while (true)
-      delay(100);
+    Serial.println("OLED初始化失败");
   }
   else
   {
-    Serial.println("OLED 初始化成功");
+    Serial.println("OLED初始化成功");
+    updateAttitudeDisplay(roll, pitch, yaw, velocityX, velocityY);
   }
 
-  Serial.println("TB6612FNG 电机驱动初始化完成");
-
-  // 新增：初始化超声波
-  initUltrasonic();
-
-  // 初始化按键（模块化）
-  buttonsInit();
-  buttonsSetShortPressHandler(onShortPress);
-  buttonsSetLongPressHandler(onLongPress);
-
-  // 默认：电机关闭、OLED关闭、方向前进
-  motorEnabled = false;
-  motorForward = true;
-  displayEnabled = false;
-  applyMotorState();
+  lastTime = micros();
 }
 
 void loop()
 {
-  // 按键检测与事件处理（非阻塞，模块化）
-  buttonsPoll();
+  // 获取时间差
+  unsigned long currentTime = micros();
+  deltaTime = (currentTime - lastTime) / 1000000.0; // 转换为秒
+  lastTime = currentTime;
 
-  // OLED 刷新（仅在开启显示时）
-  static uint32_t lastUpdate = 0;
-  if (displayEnabled && millis() - lastUpdate >= 200)
+  // 读取传感器数据
+  readMPU6050();
+
+  // 更新姿态
+  updateAttitude();
+
+  // 计算速度
+  calculateVelocity();
+
+  if (millis() - lastDisplayUpdateMs >= DISPLAY_INTERVAL_MS)
   {
-    float cm = ultrasonicReadCm();
-    if (cm < 8.0f)
-    {
-      if (!obstacleDetected) // 避免重复打印
-      {
-        motors(0, 0); // 距离过近，紧急停止
-        obstacleDetected = true;
-        Serial.println("距离过近，电机停止");
-      }
-    }
-    else
-    {
-      if (obstacleDetected) // 障碍物消失时恢复状态
-      {
-        obstacleDetected = false;
-        Serial.println("障碍物清除");
-      }
-      if (motorEnabled) // 仅在电机启用时应用状态
-      {
-        applyMotorState();
-      }
-    }
-    updateDisplay(cm, getSpeedA(), getSpeedB());
-    lastUpdate = millis();
+    lastDisplayUpdateMs = millis();
+    updateAttitudeDisplay(roll, pitch, yaw, velocityX, velocityY);
   }
 
-  // 轻微让步，降低CPU占用
   delay(5);
+}
+
+void readMPU6050()
+{
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  // 读取加速度计数据（m/s²）
+  accelX = a.acceleration.x - accelXoffset;
+  accelY = a.acceleration.y - accelYoffset;
+  accelZ = a.acceleration.z - accelZoffset;
+
+  // 读取陀螺仪数据并应用校准（deg/s）
+  gyroX = g.gyro.x * 180 / PI - gyroXoffset;
+  gyroY = g.gyro.y * 180 / PI - gyroYoffset;
+  gyroZ = g.gyro.z * 180 / PI - gyroZoffset;
+}
+
+void calibrateGyro()
+{
+  Serial.println("校准陀螺仪，保持传感器静止...");
+  float sumX = 0, sumY = 0, sumZ = 0;
+
+  for (int i = 0; i < 1000; i++)
+  {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    sumX += g.gyro.x * 180 / PI;
+    sumY += g.gyro.y * 180 / PI;
+    sumZ += g.gyro.z * 180 / PI;
+    delay(5);
+  }
+
+  gyroXoffset = sumX / 1000;
+  gyroYoffset = sumY / 1000;
+  gyroZoffset = sumZ / 1000;
+
+  calibrated = true;
+  Serial.println("校准完成");
+}
+
+void calibrateAccelerometer()
+{
+  Serial.println("校准加速度计，保持传感器静止并水平...");
+  const int samples = 1000;
+  float sumX = 0, sumY = 0, sumZ = 0;
+  for (int i = 0; i < samples; ++i)
+  {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    sumX += a.acceleration.x;
+    sumY += a.acceleration.y;
+    sumZ += a.acceleration.z;
+    delay(5);
+  }
+  accelXoffset = sumX / samples;
+  accelYoffset = sumY / samples;
+  accelZoffset = sumZ / samples - GRAVITY;
+  Serial.println("加速度计校准完成");
+}
+
+void updateAttitude()
+{
+  // 互补滤波计算姿态
+  float accelRoll = atan2(accelY, accelZ) * 180 / PI;
+  float accelPitch = atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180 / PI;
+
+  // 陀螺仪积分
+  roll = 0.98 * (roll + gyroX * deltaTime) + 0.02 * accelRoll;
+  pitch = 0.98 * (pitch + gyroY * deltaTime) + 0.02 * accelPitch;
+  yaw += gyroZ * deltaTime;
+
+  // 偏航角静止检测
+  if (fabs(gyroZ) < YAW_ZERO_THRESHOLD)
+  {
+    if (!yawZeroing)
+    {
+      yawZeroing = true;
+      yawZeroStartTime = millis();
+    }
+    else if (millis() - yawZeroStartTime >= YAW_ZERO_TIME)
+    {
+      yaw = 0; // 自动归零
+      Serial.println("偏航角已自动归零");
+      yawZeroing = false;
+    }
+  }
+  else
+  {
+    yawZeroing = false;
+  }
+}
+
+void calculateVelocity()
+{
+  float rollRad = roll * PI / 180.0f;
+  float pitchRad = pitch * PI / 180.0f;
+
+  float sinRoll = sin(rollRad);
+  float cosRoll = cos(rollRad);
+  float sinPitch = sin(pitchRad);
+  float cosPitch = cos(pitchRad);
+
+  float gravityX = -sinPitch * GRAVITY;
+  float gravityY = sinRoll * cosPitch * GRAVITY;
+
+  float linearAccelX = accelX - gravityX;
+  float linearAccelY = accelY - gravityY;
+
+  if (fabs(linearAccelX) < 0.05f) linearAccelX = 0;
+  if (fabs(linearAccelY) < 0.05f) linearAccelY = 0;
+
+  velocityX += linearAccelX * deltaTime;
+  velocityY += linearAccelY * deltaTime;
+
+  velocityX *= 0.99;
+  velocityY *= 0.99;
 }
