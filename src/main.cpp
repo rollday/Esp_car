@@ -2,9 +2,10 @@
 #include <math.h>
 #include "motors.h"
 #include "display.h"
-#include "buttons.h"    // 新增：按键模块头文件
+#include "buttons.h"
 #include "ultrasonic.h"
 #include "mpu.h"
+#include "app_logic.h"
 
 // Function prototype for clearDisplay
 void clearDisplay();
@@ -17,6 +18,7 @@ static const int BASE_SPEED = 200; // 可根据需要调整
 
 // 新增：障碍物检测标志
 static bool obstacleDetected = false;
+static AppState appState;
 static constexpr uint32_t DISPLAY_INTERVAL_MS = 200;
 static constexpr int MPU6050_SDA = 47;
 static constexpr int MPU6050_SCL = 48;
@@ -93,6 +95,9 @@ void setup()
     Serial.println("OLED 初始化成功");
   }
 
+  appLogicInit(appState, clearDisplay);
+  appLogicApplyMotorState();
+
   Serial.println("TB6612FNG 电机驱动初始化完成");
 
   // 新增：初始化超声波
@@ -100,8 +105,8 @@ void setup()
 
   // 初始化按键（模块化）
   buttonsInit();
-  buttonsSetShortPressHandler(onShortPress);
-  buttonsSetLongPressHandler(onLongPress);
+  buttonsSetShortPressHandler(appLogicOnShortPress);
+  buttonsSetLongPressHandler(appLogicOnLongPress);
 
   // 初始化MPU6050
   if (!mpuInit(MPU6050_SDA, MPU6050_SCL))
@@ -128,38 +133,21 @@ void loop()
   lastMicros = nowMicros;
   mpuUpdate(deltaTime);
 
+  const AppState &state = appLogicGetState();
+
   // 按键检测与事件处理（非阻塞，模块化）
   buttonsPoll();
 
   // OLED 刷新（仅在开启显示时）
   static uint32_t lastUpdate = 0;
-  if (displayEnabled && millis() - lastUpdate >= DISPLAY_INTERVAL_MS)
+  if (state.displayEnabled && millis() - lastUpdate >= DISPLAY_INTERVAL_MS)
   {
     float cm = ultrasonicReadCm();
-    if (cm < 8.0f)
-    {
-      if (!obstacleDetected) // 避免重复打印
-      {
-        motors(0, 0); // 距离过近，紧急停止
-        obstacleDetected = true;
-        Serial.println("距离过近，电机停止");
-      }
-    }
-    else
-    {
-      if (obstacleDetected) // 障碍物消失时恢复状态
-      {
-        obstacleDetected = false;
-        Serial.println("障碍物清除");
-      }
-      if (motorEnabled) // 仅在电机启用时应用状态
-      {
-        applyMotorState();
-      }
-    }
+    appLogicHandleObstacle(cm);
+    const AppState &updatedState = appLogicGetState();
     const MpuState &mpuState = mpuGetState();
     float planarVelocity = hypotf(mpuState.velocityX, mpuState.velocityY);
-    updateDisplay(cm, motorEnabled, motorForward, planarVelocity);
+    updateDisplay(cm, updatedState.motorEnabled, updatedState.motorForward, planarVelocity);
     lastUpdate = millis();
   }
 
