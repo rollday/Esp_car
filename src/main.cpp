@@ -2,10 +2,9 @@
 #include <math.h>
 #include "motors.h"
 #include "display.h"
-#include "buttons.h"
+#include "buttons.h" // 新增：按键模块头文件
 #include "ultrasonic.h"
 #include "mpu.h"
-#include "app_logic.h"
 
 // Function prototype for clearDisplay
 void clearDisplay();
@@ -13,17 +12,31 @@ void clearDisplay();
 // 业务状态：默认电机关闭、OLED关闭、方向前进
 static bool motorEnabled = false;
 static bool motorForward = true;
-static bool displayEnabled = false;
+static bool displayEnabled = true;
 static const int BASE_SPEED = 200; // 可根据需要调整
 
 // 新增：障碍物检测标志
 static bool obstacleDetected = false;
-static AppState appState;
 static constexpr uint32_t DISPLAY_INTERVAL_MS = 200;
 static constexpr int MPU6050_SDA = 47;
 static constexpr int MPU6050_SCL = 48;
 static unsigned long lastMicros = 0;
 static float deltaTime = 0.0f;
+static constexpr uint32_t REVERSE_DURATION_MS = 3000;
+static constexpr uint32_t PAUSE_DURATION_MS = 2000;
+static constexpr float TARGET_YAW_CHANGE = 45.0f;
+enum class AvoidState
+{
+  Idle,
+  Reversing,
+  PauseAfterReverse,
+  Rotating,
+  PauseAfterRotate
+};
+static AvoidState avoidState = AvoidState::Idle;
+static unsigned long avoidStateStartMs = 0;
+static float avoidInitialYaw = 0.0f;
+static float lastDistanceCm = -1.0f;
 
 // 应用电机状态
 static void applyMotorState()
@@ -95,9 +108,6 @@ void setup()
     Serial.println("OLED 初始化成功");
   }
 
-  appLogicInit(appState, clearDisplay);
-  appLogicApplyMotorState();
-
   Serial.println("TB6612FNG 电机驱动初始化完成");
 
   // 新增：初始化超声波
@@ -105,8 +115,8 @@ void setup()
 
   // 初始化按键（模块化）
   buttonsInit();
-  buttonsSetShortPressHandler(appLogicOnShortPress);
-  buttonsSetLongPressHandler(appLogicOnLongPress);
+  buttonsSetShortPressHandler(onShortPress);
+  buttonsSetLongPressHandler(onLongPress);
 
   // 初始化MPU6050
   if (!mpuInit(MPU6050_SDA, MPU6050_SCL))
@@ -126,6 +136,83 @@ void setup()
   lastMicros = micros();
 }
 
+static void updateObstacleAvoidance(float distanceCm, bool hasFreshSample)
+{
+  if (!motorEnabled && avoidState != AvoidState::Idle)
+  {
+    motors(0, 0);
+    avoidState = AvoidState::Idle;
+    obstacleDetected = false;
+  }
+
+  if (hasFreshSample)
+  {
+    if (motorEnabled && distanceCm > 0.0f && distanceCm < 8.0f && avoidState == AvoidState::Idle)
+    {
+      obstacleDetected = true;
+      avoidState = AvoidState::Reversing;
+      avoidStateStartMs = millis();
+      motors(0, 0);
+      Serial.println("距离过近，电机停止");
+      motors(-BASE_SPEED, -BASE_SPEED);
+      Serial.println("开始后退避障");
+    }
+    else if (distanceCm >= 8.0f && obstacleDetected && avoidState == AvoidState::Idle)
+    {
+      obstacleDetected = false;
+      Serial.println("障碍物清除");
+      if (motorEnabled)
+      {
+        applyMotorState();
+      }
+    }
+  }
+
+  switch (avoidState)
+  {
+  case AvoidState::Idle:
+    break;
+  case AvoidState::Reversing:
+    motors(-BASE_SPEED, -BASE_SPEED);
+    if (millis() - avoidStateStartMs >= REVERSE_DURATION_MS)
+    {
+      motors(0, 0);
+      avoidState = AvoidState::PauseAfterReverse;
+      avoidStateStartMs = millis();
+    }
+    break;
+  case AvoidState::PauseAfterReverse:
+    if (millis() - avoidStateStartMs >= PAUSE_DURATION_MS)
+    {
+      avoidInitialYaw = mpuGetState().yaw;
+      avoidState = AvoidState::Rotating;
+    }
+    break;
+  case AvoidState::Rotating:
+    motors(BASE_SPEED, -BASE_SPEED);
+    if (fabsf(mpuGetState().yaw - avoidInitialYaw) >= TARGET_YAW_CHANGE)
+    {
+      motors(0, 0);
+      avoidState = AvoidState::PauseAfterRotate;
+      avoidStateStartMs = millis();
+      Serial.println("原地转向完成");
+    }
+    break;
+  case AvoidState::PauseAfterRotate:
+    if (millis() - avoidStateStartMs >= PAUSE_DURATION_MS)
+    {
+      avoidState = AvoidState::Idle;
+      obstacleDetected = false;
+      Serial.println("尝试避障完成，继续前进");
+      if (motorEnabled)
+      {
+        applyMotorState();
+      }
+    }
+    break;
+  }
+}
+
 void loop()
 {
   const unsigned long nowMicros = micros();
@@ -133,23 +220,49 @@ void loop()
   lastMicros = nowMicros;
   mpuUpdate(deltaTime);
 
-  const AppState &state = appLogicGetState();
-
   // 按键检测与事件处理（非阻塞，模块化）
   buttonsPoll();
 
-  // OLED 刷新（仅在开启显示时）
+  float distanceForAvoidance = lastDistanceCm;
+  bool hasFreshDistance = false;
+
   static uint32_t lastUpdate = 0;
-  if (state.displayEnabled && millis() - lastUpdate >= DISPLAY_INTERVAL_MS)
+  if (displayEnabled && millis() - lastUpdate >= DISPLAY_INTERVAL_MS)
   {
     float cm = ultrasonicReadCm();
-    appLogicHandleObstacle(cm);
-    const AppState &updatedState = appLogicGetState();
+    if (cm >= 0.0f)
+    {
+      lastDistanceCm = cm;
+      distanceForAvoidance = cm;
+      hasFreshDistance = true;
+    }
+    else
+    {
+      cm = lastDistanceCm;
+    }
+
+    if (avoidState == AvoidState::Idle)
+    {
+      if (cm < 15.0f && cm >= 8.0f && motorEnabled)
+      {
+        Serial.println("前方有障碍物，差速转弯通过");
+        const float TURN_RATIO = 0.5f;
+        motors(BASE_SPEED, BASE_SPEED * TURN_RATIO);
+      }
+      else if (cm >= 15.0f)
+      {
+        Serial.println("无障碍物，继续同速度前进");
+        applyMotorState();
+      }
+    }
+
     const MpuState &mpuState = mpuGetState();
     float planarVelocity = hypotf(mpuState.velocityX, mpuState.velocityY);
-    updateDisplay(cm, updatedState.motorEnabled, updatedState.motorForward, planarVelocity);
+    updateDisplay(cm, motorEnabled, motorForward, planarVelocity);
     lastUpdate = millis();
   }
+
+  updateObstacleAvoidance(distanceForAvoidance, hasFreshDistance);
 
   // 轻微让步，降低CPU占用
   delay(5);
