@@ -13,7 +13,10 @@ void clearDisplay();
 static bool motorEnabled = false;
 static bool motorForward = true;
 static bool displayEnabled = true;
-static const int BASE_SPEED = 200; // 可根据需要调整
+static const int SPEED_LEVELS[] = {150, 200, 255};
+static constexpr size_t SPEED_LEVEL_COUNT = sizeof(SPEED_LEVELS) / sizeof(SPEED_LEVELS[0]);
+static size_t speedLevelIndex = 1;
+static int baseSpeed = SPEED_LEVELS[speedLevelIndex];
 
 // 新增：障碍物检测标志
 static bool obstacleDetected = false;
@@ -46,8 +49,8 @@ static void applyMotorState()
     motors(0, 0);
     return;
   }
-  int s = motorForward ? BASE_SPEED : -BASE_SPEED;
-  motors(s, s);
+  const int effectiveSpeed = motorForward ? baseSpeed : -baseSpeed;
+  motors(effectiveSpeed, effectiveSpeed);
 }
 
 // 新增：按键事件回调（短按）
@@ -55,11 +58,18 @@ static void onShortPress(int buttonIndex)
 {
   switch (buttonIndex)
   {
-  case 0: // K1：电机启动/停止
-    motorEnabled = !motorEnabled;
-    applyMotorState();
-    Serial.println(motorEnabled ? "电机：启动" : "电机：停止");
+  case 0: // K1：速度档位循环
+  {
+    speedLevelIndex = (speedLevelIndex + 1) % SPEED_LEVEL_COUNT;
+    baseSpeed = SPEED_LEVELS[speedLevelIndex];
+    Serial.print("速度档位切换为：");
+    Serial.println(baseSpeed);
+    if (motorEnabled)
+    {
+      applyMotorState();
+    }
     break;
+  }
   case 1: // K2：OLED 开/关（仅影响是否刷新显示）
     displayEnabled = !displayEnabled;
     if (!displayEnabled)
@@ -68,10 +78,10 @@ static void onShortPress(int buttonIndex)
     }
     Serial.println(displayEnabled ? "OLED：显示开启" : "OLED：显示关闭");
     break;
-  case 2: // K3：前进/后退
-    motorForward = !motorForward;
+  case 2: // K3：电机启停
+    motorEnabled = !motorEnabled;
     applyMotorState();
-    Serial.println(motorForward ? "方向：前进" : "方向：后退");
+    Serial.println(motorEnabled ? "电机：启动" : "电机：停止");
     break;
   case 3: // K4：系统重启
     Serial.println("系统重启中...");
@@ -86,6 +96,16 @@ static void onShortPress(int buttonIndex)
 // 新增：按键事件回调（长按）
 static void onLongPress(int buttonIndex)
 {
+  if (buttonIndex == 0)
+  {
+    motorForward = !motorForward;
+    Serial.println(motorForward ? "方向：前进" : "方向：后退");
+    if (motorEnabled)
+    {
+      applyMotorState();
+    }
+    return;
+  }
   Serial.print("按键");
   Serial.print(buttonIndex + 1);
   Serial.println(" 长按");
@@ -147,17 +167,17 @@ static void updateObstacleAvoidance(float distanceCm, bool hasFreshSample)
 
   if (hasFreshSample)
   {
-    if (motorEnabled && distanceCm > 0.0f && distanceCm < 8.0f && avoidState == AvoidState::Idle)
+    if (motorEnabled && distanceCm > 0.0f && distanceCm < 25.0f && avoidState == AvoidState::Idle)
     {
       obstacleDetected = true;
       avoidState = AvoidState::Reversing;
       avoidStateStartMs = millis();
       motors(0, 0);
       Serial.println("距离过近，电机停止");
-      motors(-BASE_SPEED, -BASE_SPEED);
+      motors(-baseSpeed, -baseSpeed);
       Serial.println("开始后退避障");
     }
-    else if (distanceCm >= 8.0f && obstacleDetected && avoidState == AvoidState::Idle)
+    else if (distanceCm >= 25.0f && obstacleDetected && avoidState == AvoidState::Idle)
     {
       obstacleDetected = false;
       Serial.println("障碍物清除");
@@ -173,7 +193,7 @@ static void updateObstacleAvoidance(float distanceCm, bool hasFreshSample)
   case AvoidState::Idle:
     break;
   case AvoidState::Reversing:
-    motors(-BASE_SPEED, -BASE_SPEED);
+    motors(-baseSpeed, -baseSpeed);
     if (millis() - avoidStateStartMs >= REVERSE_DURATION_MS)
     {
       motors(0, 0);
@@ -189,7 +209,7 @@ static void updateObstacleAvoidance(float distanceCm, bool hasFreshSample)
     }
     break;
   case AvoidState::Rotating:
-    motors(BASE_SPEED, -BASE_SPEED);
+    motors(baseSpeed, -baseSpeed);
     if (fabsf(mpuGetState().yaw - avoidInitialYaw) >= TARGET_YAW_CHANGE)
     {
       motors(0, 0);
@@ -243,13 +263,15 @@ void loop()
 
     if (avoidState == AvoidState::Idle)
     {
-      if (cm < 15.0f && cm >= 8.0f && motorEnabled)
+      if (cm < 45.0f && cm >= 25.0f && motorEnabled)
       {
         Serial.println("前方有障碍物，差速转弯通过");
-        const float TURN_RATIO = 0.5f;
-        motors(BASE_SPEED, BASE_SPEED * TURN_RATIO);
+        const float TURN_RATIO = 0.7f;
+        const int turnOuter = baseSpeed;
+        const int turnInner = static_cast<int>(baseSpeed * TURN_RATIO);
+        motors(turnOuter, turnInner);
       }
-      else if (cm >= 15.0f)
+      else if (cm >= 45.0f)
       {
         Serial.println("无障碍物，继续同速度前进");
         applyMotorState();
@@ -258,7 +280,7 @@ void loop()
 
     const MpuState &mpuState = mpuGetState();
     float planarVelocity = hypotf(mpuState.velocityX, mpuState.velocityY);
-    updateDisplay(cm, motorEnabled, motorForward, planarVelocity);
+    updateDisplay(cm, motorEnabled, motorForward, planarVelocity, mpuState.yaw);
     lastUpdate = millis();
   }
 

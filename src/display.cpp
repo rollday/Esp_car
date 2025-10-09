@@ -145,6 +145,31 @@ void updateDisplay(float distance, bool motorEnabled, bool motorForward, float p
     display.display();
 }
 
+void updateDisplay(float distance, bool motorEnabled, bool motorForward, float planarVelocity, float yaw)
+{
+    if (!isDisplayInitialized)
+    {
+        return;
+    }
+
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.printf("D:%4.1fcm", distance);
+
+    display.setTextSize(1);
+    display.setCursor(0, 32);
+    display.printf("Vt:%5.2f", planarVelocity);
+    display.setCursor(0, 44);
+    display.printf("Yaw:%6.1f", yaw);
+    display.setCursor(0, 56);
+    display.printf("Motor:%s %s", motorEnabled ? "ON " : "OFF", motorForward ? "FWD" : "REV");
+
+    display.display();
+}
+
 // 清屏函数实现
 void clearDisplay()
 {

@@ -6,60 +6,102 @@
 
 namespace
 {
-Adafruit_MPU6050 mpu;
-float accelXoffset = 0.0f, accelYoffset = 0.0f, accelZoffset = 0.0f;
-float gyroXoffset = 0.0f, gyroYoffset = 0.0f, gyroZoffset = 0.0f;
+  Adafruit_MPU6050 mpu;
+  float accelXoffset = 0.0f, accelYoffset = 0.0f, accelZoffset = 0.0f;
+  float gyroXoffset = 0.0f, gyroYoffset = 0.0f, gyroZoffset = 0.0f;
 
-constexpr float GRAVITY = 9.80665f;
-constexpr float YAW_ZERO_THRESHOLD = 0.1f;
-constexpr unsigned long YAW_ZERO_TIME = 2000;
+  constexpr float GRAVITY = 9.80665f;
+  constexpr float YAW_ZERO_THRESHOLD = 0.1f;
+  constexpr unsigned long YAW_ZERO_TIME = 2000;
 
-MpuState state = {};
-bool yawZeroing = false;
-unsigned long yawZeroStartTime = 0;
-bool initialized = false;
+  MpuState state = {};
+  bool yawZeroing = false;
+  unsigned long yawZeroStartTime = 0;
+  bool initialized = false;
 
-void calibrateGyro()
-{
-  Serial.println("校准陀螺仪，保持传感器静止...");
-  float sumX = 0.0f, sumY = 0.0f, sumZ = 0.0f;
-
-  for (int i = 0; i < 1000; ++i)
+  void calibrateGyro()
   {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-    sumX += g.gyro.x * 180.0f / PI;
-    sumY += g.gyro.y * 180.0f / PI;
-    sumZ += g.gyro.z * 180.0f / PI;
-    delay(5);
+    Serial.println("校准陀螺仪，保持传感器静止...");
+    float sumX = 0.0f, sumY = 0.0f, sumZ = 0.0f;
+
+    for (int i = 0; i < 1000; ++i)
+    {
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
+      sumX += g.gyro.x * 180.0f / PI;
+      sumY += g.gyro.y * 180.0f / PI;
+      sumZ += g.gyro.z * 180.0f / PI;
+      delay(5);
+    }
+
+    gyroXoffset = sumX / 1000.0f;
+    gyroYoffset = sumY / 1000.0f;
+    gyroZoffset = sumZ / 1000.0f;
+
+    Serial.println("校准完成");
   }
 
-  gyroXoffset = sumX / 1000.0f;
-  gyroYoffset = sumY / 1000.0f;
-  gyroZoffset = sumZ / 1000.0f;
-
-  Serial.println("校准完成");
-}
-
-void calibrateAccelerometer()
-{
-  Serial.println("校准加速度计，保持传感器静止并水平...");
-  const int samples = 1000;
-  float sumX = 0.0f, sumY = 0.0f, sumZ = 0.0f;
-  for (int i = 0; i < samples; ++i)
+  void calibrateAccelerometer()
   {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-    sumX += a.acceleration.x;
-    sumY += a.acceleration.y;
-    sumZ += a.acceleration.z;
-    delay(5);
+    Serial.println("校准加速度计，保持传感器静止并水平...");
+    const int samples = 1000;
+    float sumX = 0.0f, sumY = 0.0f, sumZ = 0.0f;
+    for (int i = 0; i < samples; ++i)
+    {
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
+      sumX += a.acceleration.x;
+      sumY += a.acceleration.y;
+      sumZ += a.acceleration.z;
+      delay(5);
+    }
+    accelXoffset = sumX / samples;
+    accelYoffset = sumY / samples;
+    accelZoffset = sumZ / samples - GRAVITY;
+    Serial.println("加速度计校准完成");
   }
-  accelXoffset = sumX / samples;
-  accelYoffset = sumY / samples;
-  accelZoffset = sumZ / samples - GRAVITY;
-  Serial.println("加速度计校准完成");
-}
+
+  void compensateVelocityDrift(float deltaTime, float linearAccelX, float linearAccelY)
+  {
+    static float biasX = 0.0f;
+    static float biasY = 0.0f;
+    static float emaSpeed = 0.0f;
+
+    constexpr float accelThreshold = 0.08f; // 判定“近零加速度”区间的阈值
+    constexpr float velocityFloor = 0.35f;  // 启动偏置学习的最低速度幅值
+    constexpr float biasLearnRate = 0.05f;  // 偏置累积速率，越大补偿越激进
+    constexpr float biasDecay = 0.98f;      // 未学习时的偏置衰减系数
+    constexpr float maxBias = 1.5f;         // 偏置上限，抑制异常累积
+    constexpr float maxSpeed = 10.0f;       // 速度上限，防止积分发散
+
+    const bool nearZeroAccel = fabsf(linearAccelX) < accelThreshold && fabsf(linearAccelY) < accelThreshold;
+    const float speedMag = sqrtf(state.velocityX * state.velocityX + state.velocityY * state.velocityY);
+    const float emaAlpha = fminf(deltaTime * 5.0f, 1.0f);
+    emaSpeed += (speedMag - emaSpeed) * emaAlpha; // 平滑速度用于判定匀速状态
+
+    if (nearZeroAccel && emaSpeed > velocityFloor)
+    {
+      biasX = fminf(fmaxf(biasX + state.velocityX * biasLearnRate * deltaTime, -maxBias), maxBias); // 在匀速时学习并限制偏置
+      biasY = fminf(fmaxf(biasY + state.velocityY * biasLearnRate * deltaTime, -maxBias), maxBias);
+    }
+    else
+    {
+      biasX *= biasDecay; // 非匀速时缓慢回落偏置
+      biasY *= biasDecay;
+    }
+
+    state.velocityX -= biasX * deltaTime; // 应用偏置补偿
+    state.velocityY -= biasY * deltaTime;
+
+    if (fabsf(state.velocityX) > maxSpeed)
+    {
+      state.velocityX = copysignf(maxSpeed, state.velocityX); // 速度钳位，避免积分暴涨
+    }
+    if (fabsf(state.velocityY) > maxSpeed)
+    {
+      state.velocityY = copysignf(maxSpeed, state.velocityY);
+    }
+  }
 } // namespace
 
 bool mpuInit(uint8_t sdaPin, uint8_t sclPin)
@@ -152,6 +194,8 @@ void mpuUpdate(float deltaTime)
 
   state.velocityX += linearAccelX * deltaTime;
   state.velocityY += linearAccelY * deltaTime;
+
+  compensateVelocityDrift(deltaTime, linearAccelX, linearAccelY);
 
   state.velocityX *= 0.99f;
   state.velocityY *= 0.99f;
