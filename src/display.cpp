@@ -16,6 +16,7 @@ static const int SCL_PIN = 48;
 static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 static bool isDisplayInitialized = false; // 添加一个标志位
+static float traveledDistanceMeters = 0.0f;
 
 bool initDisplay()
 {
@@ -163,7 +164,7 @@ void updateDisplay(float distance, bool motorEnabled, bool motorForward, float p
     display.setCursor(0, 32);
     display.printf("Vt:%5.2f", planarVelocity);
     display.setCursor(0, 44);
-    display.printf("Yaw:%6.1f", yaw);
+    display.printf("Yaw:%6.1f D:%5.2fm", yaw, traveledDistanceMeters);
     display.setCursor(0, 56);
     display.printf("Motor:%s %s", motorEnabled ? "ON " : "OFF", motorForward ? "FWD" : "REV");
 
@@ -180,4 +181,9 @@ void clearDisplay()
 
     display.clearDisplay(); // 清除显示内容
     display.display();      // 刷新屏幕，确保黑屏
+}
+
+void displaySetTraveledDistance(float distanceMeters)
+{
+    traveledDistanceMeters = distanceMeters;
 }

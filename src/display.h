@@ -11,3 +11,6 @@ void updateDisplay(float distance, bool motorEnabled, bool motorForward, float p
 
 // 如果需要保留姿态显示的功能，可以添加这个函数
 void updateAttitudeDisplay(float roll, float pitch, float yaw, float velX, float velY);
+
+// 设置累计行驶距离（单位：米）
+void displaySetTraveledDistance(float distanceMeters);

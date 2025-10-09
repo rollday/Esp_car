@@ -8,6 +8,7 @@
 
 // Function prototype for clearDisplay
 void clearDisplay();
+void displaySetTraveledDistance(float distanceMeters);
 
 // 业务状态：默认电机关闭、OLED关闭、方向前进
 static bool motorEnabled = false;
@@ -40,6 +41,7 @@ static AvoidState avoidState = AvoidState::Idle;
 static unsigned long avoidStateStartMs = 0;
 static float avoidInitialYaw = 0.0f;
 static float lastDistanceCm = -1.0f;
+static float totalDistanceMeters = 0.0f;
 
 // 应用电机状态
 static void applyMotorState()
@@ -239,6 +241,15 @@ void loop()
   deltaTime = (nowMicros - lastMicros) / 1000000.0f;
   lastMicros = nowMicros;
   mpuUpdate(deltaTime);
+
+  const MpuState &mpuState = mpuGetState();
+  float planarVelocity = hypotf(mpuState.velocityX, mpuState.velocityY);
+  totalDistanceMeters += planarVelocity * deltaTime;
+  if (totalDistanceMeters < 0.0f)
+  {
+    totalDistanceMeters = 0.0f;
+  }
+  displaySetTraveledDistance(totalDistanceMeters);
 
   // 按键检测与事件处理（非阻塞，模块化）
   buttonsPoll();
